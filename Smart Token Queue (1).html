@@ -1,0 +1,942 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Smart Token Queue</title>
+<style>
+  /* Layout concept: one 1920x1080 slide scaled to fit the window. Doctor phone on the left,
+     nurse console and waiting-room display side by side, a flow + activity band underneath.
+     Palette is the hospital's minimal green theme, used as one fixed light look on purpose. */
+  :root{
+    --bg-page:#F6F8F7; --bg-card:#FFFFFF; --bg-soft:#F8FAFC; --bg-next:#F3F8F5; --bg-yellow:#FEF9E7;
+    --border:#E2ECE5; --border-soft:#EDF2EE; --ink:#1E293B; --body:#334155; --muted:#5B7065;
+    --green:#2E6F56; --green-dark:#235743; --green-accent:#3B8266; --green-pill:#EBF3EF;
+    --amber:#B45309; --amber-line:#FDE68A; --amber-dot:#F59E0B;
+    --orange:#EA580C; --orange-bg:#FFEDD5; --orange-line:#FDBA74;
+    --blue:#0284C7; --blue-bg:#E0F2FE; --blue-line:#BAE6FD;
+    --stage:#E3EBE6; --frame:#1E293B; --line:#CBD5E1;
+    color-scheme:light;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--stage);color:var(--ink);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+       overflow:hidden;-webkit-tap-highlight-color:transparent}
+  html.narrow body{overflow:auto}
+  button{font:inherit;color:inherit}
+  .num{font-family:ui-rounded,"SF Pro Rounded","Segoe UI",system-ui,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  button:focus-visible{outline:3px solid var(--green-accent);outline-offset:2px}
+
+  #app{height:100%;display:flex;flex-direction:column}
+
+  /* ---------- control bar (outside the slide) ---------- */
+  .bar{flex:none;display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;padding:8px 16px;background:#fff;border-bottom:1px solid var(--border)}
+  .brand{display:flex;align-items:center;gap:10px;min-width:0;margin-right:auto}
+  .logo{width:28px;height:28px;border-radius:8px;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;flex:none}
+  .brand b{font-size:15px;font-weight:800;white-space:nowrap}
+  .brand span.sub{font-size:12px;color:var(--muted);font-weight:600;white-space:nowrap}
+  .tabs{display:flex;background:var(--green-pill);border:1px solid var(--border);border-radius:11px;padding:3px;gap:2px}
+  .tab{border:0;background:transparent;padding:6px 12px;border-radius:8px;font-size:13px;font-weight:700;color:var(--muted);cursor:pointer;min-height:32px}
+  .tab[aria-selected="true"]{background:#fff;color:var(--green-dark);box-shadow:0 1px 3px rgba(30,41,59,.12)}
+  .acts{display:flex;gap:8px;flex-wrap:wrap}
+  .btn{display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:0 13px;border-radius:10px;border:1px solid var(--line);background:var(--bg-soft);font-size:13px;font-weight:700;cursor:pointer}
+  .btn:hover{background:var(--green-pill);border-color:#B6CEC2}
+  .btn.primary{background:var(--green);color:#fff;border-color:var(--green)}
+  .btn.primary:hover{background:var(--green-dark)}
+  .btn svg{width:16px;height:16px;flex:none}
+  html.narrow .brand span.sub, html.narrow .only-wide{display:none}
+
+  .vpwrap{flex:1;min-height:0;display:flex;justify-content:center;align-items:center;padding-inline:16px}
+  html.narrow .vpwrap{align-items:flex-start;padding-block:12px}
+  .vp{position:relative;flex:none}
+  .stage{position:absolute;left:0;top:0;transform-origin:0 0;background:var(--stage);overflow:hidden}
+
+  /* ---------- slide furniture ---------- */
+  .s-abs{position:absolute;transition:opacity .35s}
+  .s-title{left:56px;top:30px;width:1100px}
+  .s-title h1{margin:0;font-size:46px;line-height:1.05;font-weight:800;letter-spacing:-.02em;color:var(--ink)}
+  .s-title p{margin:8px 0 0;font-size:22px;color:var(--muted);font-weight:600}
+  .s-note{right:56px;top:46px;font-size:17px;font-weight:700;color:var(--green-dark);background:var(--green-pill);border:1px solid #D5E6DD;padding:8px 16px;border-radius:999px}
+  .cap{display:flex;align-items:center;justify-content:space-between;height:40px;gap:10px}
+  .cap b{font-size:22px;font-weight:800;color:var(--ink)}
+  .cap b i{font-style:normal;font-weight:600;color:var(--muted);margin-left:8px;font-size:18px}
+  .cap button{border:1px solid #B6CEC2;background:#fff;color:var(--green-dark);font-weight:800;font-size:15px;padding:6px 14px;border-radius:999px;cursor:pointer}
+  .cap button:hover{background:var(--green-pill)}
+  .stage.focused .cap, .stage.focused .band{opacity:0;pointer-events:none}
+  html.narrow .s-abs{display:none}
+
+  .band{left:480px;top:626px;width:1392px;height:352px;display:grid;grid-template-columns:640px 1fr;gap:32px}
+  .flow{display:flex;flex-direction:column;gap:12px}
+  .flow h3, .feed h3{margin:0 0 4px;font-size:15px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .step{display:grid;grid-template-columns:44px 1fr;gap:14px;align-items:center;background:#fff;border:1px solid var(--border);border-radius:16px;padding:14px 18px}
+  .step .n{width:44px;height:44px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:900}
+  .step b{display:block;font-size:20px;font-weight:800;color:var(--ink)}
+  .step span{display:block;font-size:16px;color:var(--muted);margin-top:2px;font-weight:600}
+  .feed{display:flex;flex-direction:column;min-width:0}
+  .feed ul{list-style:none;margin:0;padding:0;background:#fff;border:1px solid var(--border);border-radius:16px;flex:1;overflow:hidden;display:flex;flex-direction:column}
+  .feed li{display:flex;align-items:center;gap:12px;padding:0 18px;flex:none;height:50px;border-bottom:1px solid var(--border-soft);font-size:18px;font-weight:600;color:var(--body);white-space:nowrap;overflow:hidden}
+  .feed li:last-child{border-bottom:0}
+  .feed li.empty{height:100%;justify-content:center;color:var(--muted);font-weight:600}
+  .feed time{font-size:15px;color:var(--muted);font-variant-numeric:tabular-nums;flex:none;width:76px}
+  .who{flex:none;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:3px 10px;border-radius:999px;background:var(--green-pill);color:var(--green-dark)}
+  .who.nurse{background:var(--blue-bg);color:#0369A1}
+  .feed li span.txt{overflow:hidden;text-overflow:ellipsis}
+  .feed li b{color:var(--ink)}
+
+  .story{left:56px;top:1000px;width:1808px;height:62px;display:flex;align-items:center;gap:18px;padding:0 26px;background:var(--green);color:#fff;border-radius:18px;
+         font-size:25px;font-weight:700;opacity:0;transform:translateY(8px);transition:opacity .3s,transform .3s}
+  .story.on{opacity:1;transform:none}
+  .story i{width:14px;height:14px;border-radius:50%;background:#A7F3D0;flex:none;animation:ping 1.4s infinite ease-in-out}
+  @keyframes ping{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.4);opacity:.6}}
+
+  /* ---------- devices ---------- */
+  .dev{position:absolute;left:0;top:0;transform-origin:0 0;transition:transform .55s cubic-bezier(.2,.7,.2,1),opacity .35s;will-change:transform}
+  .dev .frame{border-radius:44px;transition:box-shadow .3s}
+  .dev.acting .frame{box-shadow:0 0 0 8px rgba(46,111,86,.75),0 0 40px rgba(46,111,86,.5)}
+  .dev.reacting .frame{box-shadow:0 0 0 8px rgba(59,130,102,.38),0 0 30px rgba(59,130,102,.28)}
+  .dev.spot .frame{box-shadow:0 0 0 8px rgba(245,158,11,.7),0 0 40px rgba(245,158,11,.4)}
+
+  .mon{width:1308px;height:748px;padding:14px;background:var(--frame);border-radius:24px;box-shadow:0 14px 34px rgba(30,41,59,.25)}
+  .mon .scr{width:1280px;height:720px;border-radius:12px;overflow:hidden;position:relative;background:var(--bg-page);display:flex;flex-direction:column;padding:16px 20px;gap:12px;color:var(--body)}
+  .card{background:#fff;border:1px solid var(--border);border-radius:20px;box-shadow:0 4px 16px rgba(30,41,59,.035)}
+  .pill{display:inline-block;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--green);background:var(--green-pill);padding:3px 10px;border-radius:999px}
+
+  /* shared draggable rows */
+  .droplist{position:relative}
+  .dragging{position:absolute!important;z-index:60;margin:0!important;flex:none!important;box-shadow:0 14px 28px rgba(30,41,59,.28);transform:scale(1.02);cursor:grabbing!important}
+  .row-ph{flex:none;border:2px dashed #9FBEAE;border-radius:12px;background:rgba(46,111,86,.07)}
+  @keyframes rowFlash{0%{background-color:#FEF3C7}100%{background-color:transparent}}
+
+  /* ===== phone ===== */
+  .ph{position:relative;width:412px;height:860px;background:#000;border-radius:44px;padding:10px}
+  .ph-cam{position:absolute;top:10px;left:50%;transform:translateX(-50%);width:12px;height:12px;border-radius:50%;background:#000;z-index:5}
+  .ph-screen{width:100%;height:100%;border-radius:34px;overflow:hidden;background:#fff;display:flex;flex-direction:column;position:relative}
+  .ph-status{height:30px;background:#fff;display:flex;justify-content:space-between;align-items:center;padding:0 22px;font-size:12px;font-weight:600;color:#202124;flex:none}
+  .ph-sr{display:flex;gap:6px;align-items:center}
+  .ph-batt{width:20px;height:10px;border:1.5px solid #202124;border-radius:3px;position:relative;display:inline-block}
+  .ph-batt::after{content:"";position:absolute;inset:1px;right:5px;background:#202124;border-radius:1px}
+  .ph-chrome{background:#fff;padding:6px 10px 8px;display:flex;align-items:center;gap:8px;flex:none;border-bottom:1px solid #e3e5e8}
+  .ph-omni{flex:1;height:38px;background:#F1F3F4;border-radius:19px;display:flex;align-items:center;gap:8px;padding:0 12px;min-width:0;font-size:12px}
+  .ph-url{font-size:13px;color:#202124;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ph-url span{color:#80868b}
+  .ph-cb{width:30px;height:30px;display:flex;align-items:center;justify-content:center;color:#5f6368;font-size:18px;flex:none}
+  .ph-tabs{width:22px;height:22px;border:2px solid #5f6368;border-radius:6px;font-size:11px;font-weight:700}
+  .ph-view{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--bg-page);overflow:hidden}
+  .ph-head{padding:12px 16px;background:#fff;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex:none}
+  .ph-title{font-size:16.8px;font-weight:800}
+  .ph-sub{font-size:11.5px;font-weight:600;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:230px}
+  .ph-mask{padding:8px 12px;min-height:36px;background:var(--bg-soft);border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:12px;font-weight:700;cursor:pointer}
+  .ph-card{background:#fff;margin:10px 12px;border-radius:14px;border:1px solid var(--border);padding:14px;flex:none}
+  .ph-ch{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+  .ph-lbl{font-size:10.4px;font-weight:800;text-transform:uppercase;color:var(--muted);letter-spacing:.05em}
+  .ph-tok{font-size:35px;font-weight:900;line-height:1;margin-top:2px}
+  .ph-badge{font-size:11.5px;font-weight:800;padding:5px 10px;border-radius:999px;background:#E8F0EB;color:var(--green)}
+  .ph-badge.rev{background:var(--bg-yellow);color:var(--amber)}
+  .ph-name{font-size:18.4px;font-weight:800;margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ph-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+  .ph-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:52px;padding:8px 4px;border-radius:10px;font-size:12.5px;font-weight:700;border:1px solid var(--border);background:var(--bg-soft);color:var(--ink);cursor:pointer}
+  .ph-btn:active{transform:scale(.97);background:#E2ECE5}
+  .ph-btn.main{grid-column:span 3;background:var(--green);color:#fff;border-color:var(--green);font-size:14.7px;min-height:48px;flex-direction:row;gap:8px}
+  .ph-queue{flex:1;min-height:0;display:flex;flex-direction:column;background:#fff;border-top-left-radius:20px;border-top-right-radius:20px;border-top:1px solid var(--border)}
+  .ph-qhead{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex:none}
+  .ph-qt{font-size:15.2px;font-weight:800}
+  .ph-count{font-size:11.5px;font-weight:700;background:var(--bg-soft);padding:3px 8px;border-radius:999px;color:var(--muted)}
+  .ph-list{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px}
+  .ph-row{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg-page);border:1px solid var(--border);border-radius:10px;touch-action:pan-y;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;cursor:grab;flex:none}
+  .ph-row.hold{background:var(--orange-bg);border-color:var(--orange-line)}
+  .ph-row.test{background:var(--blue-bg);border-color:var(--blue-line)}
+  .ph-row.rev{background:var(--bg-yellow);border-color:var(--amber-line)}
+  .ph-row.flash{animation:rowFlash .9s ease-out}
+  .ph-left{display:flex;align-items:center;gap:10px;min-width:0}
+  .ph-rt{font-size:17.6px;font-weight:900;width:34px}
+  .ph-rn{font-size:14.4px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ph-rs{font-size:9.9px;font-weight:700;text-transform:uppercase;margin-top:2px;color:var(--muted)}
+  .ph-rs.hold{color:var(--orange)} .ph-rs.test{color:var(--blue)} .ph-rs.rev{color:var(--amber)}
+  .ph-ra{font-size:12px;font-weight:800;min-height:36px;padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:#fff;color:var(--ink);cursor:pointer}
+  .ph-nav{height:22px;background:#fff;display:flex;justify-content:center;align-items:center;flex:none}
+  .ph-nav i{width:110px;height:4px;background:#202124;border-radius:2px;opacity:.85}
+
+  /* ===== nurse console ===== */
+  .nu-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 22px;flex:none}
+  .nu-id{display:flex;align-items:center;gap:14px;min-width:0}
+  .nu-bar{width:7px;height:44px;border-radius:99px;background:var(--green)}
+  .nu-title{font-size:28px;font-weight:800;color:var(--ink);line-height:1.1;letter-spacing:-.02em}
+  .nu-sub{font-size:15px;font-weight:600;color:var(--muted);margin-top:2px}
+  .nu-right{display:flex;align-items:center;gap:12px}
+  .timebox{display:flex;align-items:center;gap:12px;background:var(--bg-soft);border:1px solid var(--border);padding:6px 16px;border-radius:12px}
+  .timebox .m{display:flex;flex-direction:column;align-items:flex-end}
+  .timebox .d{font-size:12px;font-weight:600;color:var(--muted);margin-top:2px;white-space:nowrap}
+  .timebox .c{font-size:28px;font-weight:800;color:var(--ink);line-height:1;white-space:nowrap}
+  .cbtn{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:11px;border:1px solid var(--line);background:var(--bg-soft);color:var(--body);font-size:14px;font-weight:700;cursor:pointer}
+  .cbtn:hover{background:var(--green-pill)}
+  .nu-cur{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:14px 26px;flex:none;transition:background .25s,border-color .25s}
+  .nu-cur.calling{animation:glow 1.8s infinite ease-in-out;border-color:var(--green-accent);background:#F4F9F6}
+  @keyframes glow{0%,100%{box-shadow:0 0 0 0 rgba(46,111,86,.3)}50%{box-shadow:0 0 0 10px rgba(46,111,86,0)}}
+  .nu-tp{display:flex;align-items:center;gap:26px;min-width:0;flex:1}
+  .nu-giant{font-size:70px;font-weight:900;color:var(--ink);line-height:1;margin-top:4px}
+  .vdiv{width:1px;height:70px;background:var(--border);flex:none}
+  .flab{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);display:block}
+  .nu-pname{font-size:36px;font-weight:800;color:var(--ink);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .nu-stack{display:flex;flex-direction:column;align-items:flex-end;gap:10px;flex:none}
+  .stpill{display:inline-flex;align-items:center;gap:10px;padding:9px 20px;border-radius:13px;font-size:16px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;border:1px solid var(--green);background:var(--green);color:#fff;cursor:pointer}
+  .stpill.rev{background:var(--bg-yellow);border-color:var(--amber-line);color:var(--amber)}
+  .stpill i{width:10px;height:10px;border-radius:50%;background:#A7F3D0;animation:ping 1.6s infinite ease-in-out}
+  .stpill.rev i{background:#D97706}
+  .wf{display:flex;gap:8px}
+  .wfb{display:inline-flex;align-items:center;gap:6px;padding:8px 13px;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;background:var(--bg-soft);border:1px solid var(--line);color:var(--body)}
+  .wfb:hover{background:#F1F5F9}
+  .wfb.go{background:var(--green);border-color:var(--green);color:#fff}
+  .wfb.go:hover{background:var(--green-dark)}
+  .nu-q{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+  .nu-qt{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 22px;border-bottom:1px solid var(--border);background:#FAFDFB;flex:none}
+  .nu-qh{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:800;text-transform:uppercase;color:var(--ink)}
+  .cnt{padding:3px 11px;border-radius:999px;font-size:13px;font-weight:700;background:var(--green-pill);color:var(--green);border:1px solid #D5E6DD;text-transform:none}
+  .strips{display:flex;gap:10px;align-items:center}
+  .trk{display:inline-flex;align-items:center;gap:7px;background:#fff;padding:3px 8px;border-radius:11px;border:1px solid #E2E8F0}
+  .trk-tag{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:3px 8px;border-radius:7px}
+  .trk-tag.h{background:#F1F5F9;color:#475569} .trk-tag.t{background:#F0F9FF;color:#0369A1}
+  .trk-pill{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:7px;font-size:13px;font-weight:700;cursor:pointer;background:var(--bg-soft);border:1px solid var(--line);color:var(--body)}
+  .trk-pill.t{border-color:var(--blue-line);color:#0369A1}
+  .trk-pill:hover{background:var(--green-pill)}
+  .trk-none{font-size:12px;font-weight:700;color:#6B9078;padding:0 4px}
+  .est-h{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);background:#fff;padding:5px 12px;border-radius:9px;border:1px solid var(--border);width:200px;text-align:center}
+  .nu-rows{flex:1;min-height:0;display:flex;flex-direction:column}
+  .nu-row{flex:1;min-height:0;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:0 22px;border-bottom:1px solid var(--border-soft);background:#fff;cursor:grab;touch-action:pan-y;-webkit-user-select:none;user-select:none}
+  .nu-row.next{background:var(--bg-next);border-left:6px solid var(--green)}
+  .nu-row.rev{background:var(--bg-yellow);border-left:6px solid var(--amber-dot)}
+  .nu-row.flash{animation:rowFlash .9s ease-out}
+  .nu-row.dragging{background:#fff;border:1px solid var(--green);border-radius:12px}
+  .nu-ph{margin:0 14px}
+  .nu-rl{display:flex;align-items:center;gap:18px;min-width:0;flex:1}
+  .nu-rt{width:70px;font-size:30px;font-weight:800;color:var(--ink);flex:none}
+  .nu-rn{font-size:23px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .nu-rb{display:flex;align-items:center;gap:8px;margin-left:auto;flex:none}
+  .nextup{padding:4px 11px;border-radius:7px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;background:var(--green);color:#fff}
+  .clin{padding:5px 12px;border-radius:7px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;cursor:pointer;border:1px solid #D5E6DD;background:var(--green-pill);color:var(--green)}
+  .clin.rev{background:var(--bg-yellow);border-color:var(--amber-line);color:#D97706}
+  .tbox{width:200px;display:flex;align-items:center;justify-content:space-between;padding:6px 14px;border-radius:12px;border:1px solid var(--border);background:var(--bg-soft);color:var(--ink);flex:none}
+  .tbox.next{background:var(--green-pill);border-color:#B6CEC2}
+  .tbox.rev{background:var(--bg-yellow);border-color:var(--amber-line);color:var(--amber)}
+  .chip{white-space:nowrap;font-size:12px;font-weight:700;text-transform:uppercase;padding:2px 8px;border-radius:6px;background:#fff;color:var(--muted);border:1px solid var(--border)}
+  .tbox.next .chip{color:var(--green);border-color:#C6DDD2}
+  .tbox.rev .chip{color:#D97706;border-color:var(--amber-line)}
+  .tclock{font-size:22px;font-weight:800;white-space:nowrap}
+
+  /* ===== waiting-room display ===== */
+  .tv-top{display:flex;align-items:center;justify-content:space-between;padding:10px 24px;flex:none}
+  .tv-brand{display:flex;align-items:center;gap:16px}
+  .tv-logo{width:46px;height:46px;border-radius:13px;background:var(--green);color:#fff;font-size:30px;font-weight:900;display:flex;align-items:center;justify-content:center}
+  .tv-hn{font-size:28px;font-weight:800;color:var(--ink);letter-spacing:-.02em;line-height:1.1}
+  .tv-hs{font-size:15px;font-weight:600;color:var(--muted);margin-top:2px}
+  .tv-main{flex:1;min-height:0;display:grid;grid-template-columns:540px 1fr;gap:16px}
+  .tv-now{position:relative;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:62px 24px 20px;transition:background .25s,border-color .25s}
+  .tv-now.calling{animation:glow 1.8s infinite ease-in-out;border-color:var(--green-accent);background:#F4F9F6}
+  .tv-banner{position:absolute;left:0;right:0;top:0;background:var(--green);color:#fff;font-size:19px;font-weight:800;padding:12px 16px;transform:translateY(-110%);transition:transform .35s}
+  .tv-now.calling .tv-banner{transform:none}
+  .tv-lab{font-size:20px;font-weight:800;letter-spacing:.3em;text-transform:uppercase;color:var(--green)}
+  .tv-tok{font-size:200px;font-weight:900;line-height:1;color:var(--ink);margin:6px 0 4px}
+  .tv-pn{font-size:42px;font-weight:800;color:var(--ink);max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tv-st{margin-top:14px;display:inline-flex;align-items:center;gap:10px;padding:9px 22px;border-radius:13px;font-size:18px;font-weight:800;text-transform:uppercase;letter-spacing:.03em;background:var(--green);color:#fff}
+  .tv-st.rev{background:var(--bg-yellow);color:var(--amber);border:1px solid var(--amber-line)}
+  .tv-st i{width:10px;height:10px;border-radius:50%;background:#A7F3D0;animation:ping 1.6s infinite ease-in-out}
+  .tv-st.rev i{background:#D97706}
+  .tv-doc{margin-top:16px;padding-top:14px;border-top:1px solid var(--border);width:86%}
+  .tv-doc b{display:block;font-size:22px;font-weight:800;color:var(--ink)}
+  .tv-doc span{display:block;font-size:15px;color:var(--muted);font-weight:600;margin-top:2px}
+  .tv-side{display:flex;flex-direction:column;gap:12px;min-height:0}
+  .tv-next{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+  .tv-nh{display:flex;justify-content:space-between;align-items:center;padding:10px 20px;border-bottom:1px solid var(--border);background:#FAFDFB;font-size:17px;font-weight:800;text-transform:uppercase;color:var(--ink);flex:none}
+  .tv-nh span.e{font-size:12px;font-weight:800;letter-spacing:.06em;color:var(--muted);background:#fff;padding:5px 12px;border-radius:9px;border:1px solid var(--border)}
+  .tv-rows{flex:1;min-height:0;display:flex;flex-direction:column}
+  .tv-row{flex:1;min-height:0;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 20px;border-bottom:1px solid var(--border-soft);background:#fff}
+  .tv-row:last-child{border-bottom:0}
+  .tv-row.next{background:var(--bg-next);border-left:6px solid var(--green)}
+  .tv-row.rev{background:var(--bg-yellow);border-left:6px solid var(--amber-dot)}
+  .tv-row.flash{animation:rowFlash .9s ease-out}
+  .tv-rt{width:64px;font-size:30px;font-weight:800;color:var(--ink);flex:none}
+  .tv-rn{font-size:23px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+  .tv-badge{white-space:nowrap;padding:4px 11px;border-radius:7px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;flex:none}
+  .tv-badge.n{background:var(--green);color:#fff}
+  .tv-badge.r{background:var(--bg-yellow);color:#D97706;border:1px solid var(--amber-line)}
+  .tv-tb{width:205px;white-space:nowrap;gap:8px;display:flex;align-items:center;justify-content:space-between;padding:5px 12px;border-radius:11px;border:1px solid var(--border);background:var(--bg-soft);flex:none}
+  .tv-row.next .tv-tb{background:var(--green-pill);border-color:#B6CEC2}
+  .tv-row.rev .tv-tb{background:var(--bg-yellow);border-color:var(--amber-line);color:var(--amber)}
+  .tv-strips{display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:none}
+  .tv-strip{padding:10px 16px;display:flex;flex-direction:column;gap:6px;min-height:76px}
+  .tv-strip h4{margin:0;font-size:13px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+  .tv-strip.h h4{color:#475569} .tv-strip.t h4{color:#0369A1}
+  .tv-chips{display:flex;gap:6px;flex-wrap:wrap}
+  .tv-chip{display:inline-flex;gap:8px;align-items:center;padding:4px 10px;border-radius:8px;font-size:15px;font-weight:700;background:var(--bg-soft);border:1px solid var(--line);color:var(--body);max-width:100%}
+  .tv-strip.t .tv-chip{border-color:var(--blue-line);color:#0369A1}
+  .tv-tick{flex:none;overflow:hidden;white-space:nowrap;background:#fff;border:1px solid var(--border);border-radius:14px;padding:9px 0;font-size:15px;color:var(--muted);font-weight:600}
+  .tv-tick span{display:inline-block;padding-left:100%;animation:scroll 40s linear infinite}
+  .tv-tick b{color:var(--green);margin:0 14px}
+  @keyframes scroll{to{transform:translateX(-100%)}}
+
+  /* ---------- start gate ---------- */
+  .gate{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(227,235,230,.94)}
+  .gate[hidden]{display:none}
+  .gcard{max-width:520px;background:#fff;border:1px solid var(--border);border-radius:24px;padding:32px;box-shadow:0 20px 50px rgba(30,41,59,.16)}
+  .gcard h2{margin:0 0 8px;font-size:30px;line-height:1.1;font-weight:800;letter-spacing:-.02em}
+  .gcard p{margin:0 0 20px;color:var(--muted);font-size:16px;font-weight:600;line-height:1.5}
+  .gcard .btn{min-height:48px;font-size:16px;padding:0 24px}
+  .gcard small{display:block;margin-top:14px;color:var(--muted);font-size:13px;font-weight:600}
+
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+  }
+</style>
+
+<div id="app">
+  <header class="bar" id="bar">
+    <div class="brand"><span class="logo">+</span><b>Smart Token Queue</b><span class="sub">Live demo · one queue, three screens</span></div>
+    <nav class="tabs" id="tabs" aria-label="Choose a screen">
+      <button class="tab only-wide" data-focus="all" aria-selected="true" title="Show all three (0 or Esc)">All three</button>
+      <button class="tab" data-focus="phone" aria-selected="false" title="Enlarge (1)">Nurse desk</button>
+      <button class="tab" data-focus="nurse" aria-selected="false" title="Enlarge (2)">Doctor</button>
+      <button class="tab" data-focus="tv" aria-selected="false" title="Enlarge (3)">Waiting room</button>
+    </nav>
+    <div class="acts">
+      <button class="btn primary" id="btnPlay" title="Play the scripted walkthrough (P)"></button>
+      <button class="btn" id="btnSound" title="Sound on the waiting-room display (M)"></button>
+      <button class="btn" id="btnReset" title="Reset the queue"></button>
+      <button class="btn only-wide" id="btnFull" title="Full screen"></button>
+    </div>
+  </header>
+
+  <div class="vpwrap">
+    <div class="vp" id="vp">
+      <div class="stage" id="stage">
+        <div class="s-abs s-title"><h1>Smart Token Queue</h1><p>Doctor, nurse desk and waiting room on one live queue</p></div>
+        <div class="s-abs s-note">Sample patients only</div>
+
+        <div class="s-abs cap" style="left:56px;top:128px;width:387px"><b>Nurse desk<i>mobile app</i></b><button data-focus="phone" aria-label="Enlarge the nurse desk app">Enlarge</button></div>
+        <div class="s-abs cap" style="left:480px;top:128px;width:680px"><b>Doctor<i>console</i></b><button data-focus="nurse" aria-label="Enlarge the doctor console">Enlarge</button></div>
+        <div class="s-abs cap" style="left:1192px;top:128px;width:680px"><b>Waiting room<i>display</i></b><button data-focus="tv" aria-label="Enlarge the waiting-room display">Enlarge</button></div>
+
+        <div class="s-abs band">
+          <div class="flow">
+            <h3>How it flows</h3>
+            <div class="step"><span class="n">1</span><div><b>Doctor calls the next patient</b><span>One tap on the console: Complete &amp; Next.</span></div></div>
+            <div class="step"><span class="n">2</span><div><b>Nurse desk stays in step</b><span>Drag to reorder on the phone. Finished tests rejoin the line.</span></div></div>
+            <div class="step"><span class="n">3</span><div><b>Waiting room announces</b><span>Chime, voice and a large token with entry time.</span></div></div>
+          </div>
+          <div class="feed"><h3>Live activity</h3><ul id="feed"></ul></div>
+        </div>
+
+        <div class="s-abs story" id="story"><i></i><span id="storyTxt"></span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="gate" id="gate">
+    <div class="gcard">
+      <h2>Smart Token Queue</h2>
+      <p>Three screens, one live queue. Try the nurse desk's phone or the doctor's console, and watch the waiting-room display respond. Press-and-drag a patient to reorder.</p>
+      <button class="btn primary" id="btnStart">Start demo</button>
+      <small>Sound plays only on the waiting-room display.</small>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ================= helpers ================= */
+const el=(tag,cls,txt)=>{const e=document.createElement(tag); if(cls) e.className=cls; if(txt!=null) e.textContent=txt; return e;};
+const $=(s,r)=>(r||document).querySelector(s);
+const ICON={
+  play:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+  stop:'<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
+  on:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 010 7M19 5a10 10 0 010 14"/></svg>',
+  off:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>',
+  reset:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 109-9 9 9 0 00-6.7 3L3 8"/><path d="M3 3v5h5"/></svg>',
+  full:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>'
+};
+
+/* ================= shared state ================= */
+const POOL=["Harish Kumar","Nandini Pillai","Gokul Nath","Fathima Beevi","Rohan Mathew","Parvathy S","Arunima Das","Siddharth Menon"];
+const initState=()=>({
+  active:{token:104,name:"Rajesh Nair",review:false},
+  waiting:[
+    {token:105,name:"Meera Krishnan",review:false},
+    {token:102,name:"Abdul Rahman",review:true},
+    {token:106,name:"Lakshmi Menon",review:false},
+    {token:107,name:"Vishnu Prasad",review:false},
+    {token:108,name:"Anjali Varma",review:false}],
+  hold:[{token:103,name:"Divya Nair",review:false}],
+  testing:[{token:101,name:"Suresh Babu",review:false}],
+  mask:false, calling:false, flash:null
+});
+let S=initState(), nextToken=109, poolIdx=0, feedLog=[];
+let sound=true, unlocked=false, audioCtx=null, callTimer=null, flashTimer=null;
+
+function fmt(name){
+  if(!S.mask||!name) return name||"";
+  return name.trim().split(/\s+/).map((w,i)=>{
+    const c=w.replace(/[^a-zA-Z]/g,"");
+    if(c.length<=2) return w[0]+"*";
+    if(i===0) return w.slice(0,2)+"*".repeat(Math.max(3,w.length-2));
+    return w[0]+"*".repeat(Math.max(3,w.length-1));
+  }).join(" ");
+}
+const slot=p=>p&&p.review?5:10;
+function est(idx){
+  let m=slot(S.active);
+  for(let i=0;i<idx;i++) m+=slot(S.waiting[i]);
+  const d=new Date(Date.now()+m*60000);
+  return {mins:m,clock:clockStr(d)};
+}
+function clockStr(d){return d.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",hour12:true});}
+function hhmm(d){return d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});}
+
+/* ================= devices ================= */
+const DEV={
+  phone:{w:412,h:860,slide:{x:56,y:176,k:0.94},name:"Nurse desk"},
+  nurse:{w:1308,h:748,slide:{x:480,y:176,k:0.52},name:"Doctor"},
+  tv:{w:1308,h:748,slide:{x:1192,y:176,k:0.52},name:"Waiting room"}
+};
+const actorKey={"Nurse desk":"phone","Doctor":"nurse","Waiting room":"tv"};
+let focus="all";
+
+/* ================= drag (press & hold on touch, plain drag with a mouse) ================= */
+let dragCount=0;
+function guardTouch(listEl){
+  listEl.addEventListener("touchmove",e=>{ if(dragCount&&e.cancelable) e.preventDefault(); },{passive:false});
+  listEl.addEventListener("contextmenu",e=>e.preventDefault());
+}
+function attachDrag(rowEl,ctx){
+  rowEl.addEventListener("pointerdown",e=>{
+    if(e.target.closest("button")||dragCount) return;
+    if(e.pointerType==="mouse"&&e.button!==0) return;
+    const pid=e.pointerId, isMouse=e.pointerType==="mouse", listEl=ctx.listEl;
+    const sx=e.clientX, sy=e.clientY, startG=rowEl._it.g;
+    let cx=sx, cy=sy, active=false, timer=null, raf=0, ph=null, offY=0, curG=startG, sc=1;
+
+    const others=()=>Array.from(listEl.children).filter(c=>c!==rowEl&&c!==ph&&c._it&&c._it.g===startG);
+
+    function setGroup(g){
+      if(g===curG) return;
+      curG=g; ctx.onGroup(rowEl,g);
+    }
+    function place(){
+      const lr=listEl.getBoundingClientRect();
+      rowEl.style.top=(((cy-lr.top)/sc)+listEl.scrollTop-offY)+"px";
+      const rows=others();
+      let before=null;
+      for(const c of rows){ const r=c.getBoundingClientRect(); if(cy<r.top+r.height/2){ before=c; break; } }
+      if(before){ if(ph.nextElementSibling!==before) listEl.insertBefore(ph,before); }
+      else if(rows.length){ const last=rows[rows.length-1]; if(ph.previousElementSibling!==last) last.after(ph); }
+    }
+    function loop(){
+      if(!active) return;
+      const lr=listEl.getBoundingClientRect(), edge=56*sc;
+      let dy=0;
+      if(cy<lr.top+edge) dy=-Math.ceil((lr.top+edge-cy)/(6*sc));
+      else if(cy>lr.bottom-edge) dy=Math.ceil((cy-(lr.bottom-edge))/(6*sc));
+      if(dy) listEl.scrollTop+=dy;
+      place();
+      raf=requestAnimationFrame(loop);
+    }
+    function begin(){
+      if(active) return;
+      active=true; dragCount++;
+      const r=rowEl.getBoundingClientRect(), lr=listEl.getBoundingClientRect();
+      sc=(lr.height/listEl.offsetHeight)||1;
+      offY=(cy-r.top)/sc;
+      const w=rowEl.offsetWidth, h=rowEl.offsetHeight;
+      ph=el("div",ctx.phClass+" row-ph"); ph.style.height=h+"px";
+      listEl.insertBefore(ph,rowEl);
+      rowEl.classList.add("dragging");
+      rowEl.style.width=w+"px"; rowEl.style.height=h+"px";
+      rowEl.style.left=(((r.left-lr.left)/sc)+listEl.scrollLeft)+"px";
+      rowEl.style.top=(((r.top-lr.top)/sc)+listEl.scrollTop)+"px";
+      try{ rowEl.setPointerCapture(pid); }catch(_){}
+      if(navigator.vibrate) navigator.vibrate(12);
+      loop();
+    }
+    function finish(commit){
+      clearTimeout(timer); cancelAnimationFrame(raf);
+      window.removeEventListener("pointermove",onMove);
+      window.removeEventListener("pointerup",onUp);
+      window.removeEventListener("pointercancel",onCancel);
+      if(!active) return;
+      active=false; dragCount=Math.max(0,dragCount-1);
+      if(commit){
+        const order=[];
+        Array.from(listEl.children).forEach(c=>{
+          if(c===ph) order.push({p:rowEl._it.p,g:curG});
+          else if(c!==rowEl&&c._it) order.push(c._it);
+        });
+        ctx.commit(order,startG,curG,rowEl._it.p);
+      }
+      render(true);
+    }
+    function onMove(ev){
+      if(ev.pointerId!==pid) return;
+      cx=ev.clientX; cy=ev.clientY;
+      if(active) return;
+      const dist=Math.hypot(cx-sx,cy-sy);
+      if(isMouse){ if(dist>5) begin(); }
+      else if(dist>9){ finish(false); }
+    }
+    function onUp(ev){ if(ev.pointerId===pid) finish(true); }
+    function onCancel(ev){ if(ev.pointerId===pid) finish(false); }
+    window.addEventListener("pointermove",onMove);
+    window.addEventListener("pointerup",onUp);
+    window.addEventListener("pointercancel",onCancel);
+    if(!isMouse) timer=setTimeout(begin,260);
+  });
+}
+
+/* ================= actions (every screen calls these) ================= */
+function topUp(){ while(S.waiting.length<5) S.waiting.push({token:nextToken++,name:POOL[poolIdx++%POOL.length],review:false}); }
+function pull(){ if(!S.waiting.length) topUp(); S.active=S.waiting.shift(); topUp(); }
+function addLog(who,verb,p){
+  feedLog.unshift({t:new Date(),who,verb,token:p?p.token:null,name:p?p.name:null});
+  feedLog.length=Math.min(feedLog.length,6);
+}
+function setFlash(token){
+  S.flash=token; clearTimeout(flashTimer);
+  flashTimer=setTimeout(()=>{S.flash=null;},1200);
+}
+function flashDevs(by){
+  const ak=actorKey[by];
+  Object.keys(DEV).forEach(k=>{
+    const d=DEV[k]; d.el.classList.remove("acting","reacting"); void d.el.offsetWidth;
+    d.el.classList.add(k===ak?"acting":"reacting");
+    clearTimeout(d.t); d.t=setTimeout(()=>d.el.classList.remove("acting","reacting"),1700);
+  });
+}
+function announce(by,quiet){
+  if(!quiet) addLog(by,"announced",S.active);
+  S.calling=true; render(); flashDevs(by);
+  tvAudio();
+  clearTimeout(callTimer);
+  callTimer=setTimeout(()=>{S.calling=false;render();},5500);
+}
+function actNext(by){ addLog(by,"completed",S.active); pull(); addLog(by,"called",S.active); announce(by,true); }
+function actHold(by){ addLog(by,"put on hold",S.active); S.hold.push(S.active); pull(); addLog(by,"called",S.active); announce(by,true); }
+function actTest(by){ addLog(by,"sent for testing",S.active); S.testing.push(S.active); pull(); addLog(by,"called",S.active); announce(by,true); }
+function restoreHold(i,by){
+  const p=S.hold.splice(i,1)[0]; if(!p) return;
+  S.waiting.splice(Math.min(1,S.waiting.length),0,p); setFlash(p.token);
+  addLog(by,"returned from hold",p); render(); flashDevs(by);
+}
+function testDone(i,by){
+  const p=S.testing.splice(i,1)[0]; if(!p) return;
+  p.review=true; S.waiting.splice(Math.min(1,S.waiting.length),0,p); setFlash(p.token);
+  addLog(by,"test done, rejoined as Awaiting Review",p); render(); flashDevs(by);
+}
+function toggleReview(idx,by){
+  const p=S.waiting[idx]; if(!p) return;
+  p.review=!p.review; setFlash(p.token);
+  addLog(by,p.review?"marked Awaiting Review":"marked Pending",p); render(); flashDevs(by);
+}
+function toggleMask(by){
+  S.mask=!S.mask; addLog(by,S.mask?"masked patient names":"showed patient names",null); render(); flashDevs(by);
+}
+function moveLastToFront(by){
+  const p=S.waiting.pop(); if(!p) return;
+  S.waiting.unshift(p); setFlash(p.token); addLog(by,"moved to the front",p); render(); flashDevs(by);
+}
+
+/* ================= sound: the waiting-room display only ================= */
+function chime(cb){
+  try{
+    if(!audioCtx){ const AC=window.AudioContext||window.webkitAudioContext; audioCtx=new AC(); }
+    if(audioCtx.state==="suspended") audioCtx.resume();
+    const t0=audioCtx.currentTime;
+    [{f:587.33,s:0,d:.36},{f:880,s:.22,d:.68}].forEach(t=>{
+      const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+      o.type="sine"; o.frequency.setValueAtTime(t.f,t0+t.s);
+      g.gain.setValueAtTime(.001,t0+t.s);
+      g.gain.exponentialRampToValueAtTime(.24,t0+t.s+.04);
+      g.gain.exponentialRampToValueAtTime(.0001,t0+t.s+t.d);
+      o.connect(g); g.connect(audioCtx.destination); o.start(t0+t.s); o.stop(t0+t.s+t.d);
+    });
+    if(cb) setTimeout(cb,620);
+  }catch(e){ if(cb) cb(); }
+}
+function speak(){
+  try{
+    if(!("speechSynthesis" in window)) return;
+    speechSynthesis.cancel();
+    const a=S.active, purpose=a.review?"for reviewing test results with Doctor Arvind Krishnan.":"for consultation with Doctor Arvind Krishnan.";
+    const txt=S.mask?`Attention please. Token number ${a.token}, please proceed ${purpose}`
+                    :`Attention please. Token number ${a.token}, ${a.name}, please proceed ${purpose}`;
+    const u=new SpeechSynthesisUtterance(txt); u.rate=.92;
+    const v=speechSynthesis.getVoices().find(v=>/en-IN|en-GB|en-US/.test(v.lang)); if(v) u.voice=v;
+    speechSynthesis.speak(u);
+  }catch(e){}
+}
+function tvAudio(){ if(!unlocked||!sound) return; chime(speak); }
+
+/* ================= build: doctor phone ================= */
+const P={};
+function buildPhone(){
+  const d=el("div","dev"); d.id="dev-phone";
+  d.innerHTML=`<div class="ph frame"><i class="ph-cam"></i><div class="ph-screen">
+    <div class="ph-status"><span data-r="clock">9:54</span><span class="ph-sr"><span>5G</span><span>▂▄▆█</span><i class="ph-batt"></i></span></div>
+    <div class="ph-chrome"><div class="ph-omni"><span>🔒</span><span class="ph-url">clinic.app<span>/nurse/queue</span></span></div><div class="ph-cb ph-tabs">1</div><div class="ph-cb">⋮</div></div>
+    <div class="ph-view">
+      <div class="ph-head"><div><div class="ph-title">Nurse Desk</div><div class="ph-sub">Queue for Dr. Arvind Krishnan</div></div><button class="ph-mask" data-r="mask">👁 Mask</button></div>
+      <div class="ph-card">
+        <div class="ph-ch"><div><span class="ph-lbl">Current Patient</span><div class="num ph-tok" data-r="tok"></div></div><div class="ph-badge" data-r="badge"></div></div>
+        <div class="ph-name" data-r="name"></div>
+        <div class="ph-grid">
+          <button class="ph-btn" data-r="ann"><span style="font-size:16px">🔔</span>Announce</button>
+          <button class="ph-btn" data-r="hold"><span style="font-size:16px">⏸</span>On Hold</button>
+          <button class="ph-btn" data-r="test"><span style="font-size:16px">🧪</span>Testing</button>
+          <button class="ph-btn main" data-r="next">✓ Complete &amp; Next</button>
+        </div>
+      </div>
+      <div class="ph-queue"><div class="ph-qhead"><div class="ph-qt">Queue Manager</div><div class="ph-count" data-r="count"></div></div><div class="ph-list droplist" data-r="list"></div></div>
+    </div>
+    <div class="ph-nav"><i></i></div></div></div>`;
+  d.querySelectorAll("[data-r]").forEach(n=>P[n.dataset.r]=n);
+  P.mask.onclick=()=>toggleMask("Nurse desk");
+  P.ann.onclick=()=>announce("Nurse desk");
+  P.hold.onclick=()=>actHold("Nurse desk");
+  P.test.onclick=()=>actTest("Nurse desk");
+  P.next.onclick=()=>actNext("Nurse desk");
+  guardTouch(P.list);
+  DEV.phone.el=d; return d;
+}
+const PH_G={
+  hold:{cls:"hold",sub:"hold",label:"ON HOLD",btn:"Return"},
+  testing:{cls:"test",sub:"test",label:"TESTING",btn:"Test Done"},
+  pending:{cls:"",sub:"",label:"PENDING",btn:"Waiting"},
+  review:{cls:"rev",sub:"rev",label:"AWAITING REVIEW",btn:"Waiting"}
+};
+function phoneRow(p,g,fn){
+  const key=g==="pending"&&p.review?"review":g, G=PH_G[key];
+  const r=el("div","ph-row "+G.cls+(S.flash===p.token?" flash":"")); r._it={p,g};
+  const left=el("div","ph-left");
+  const tk=el("span","num ph-rt",p.token), wrap=el("div"); wrap.style.minWidth="0";
+  const nm=el("div","ph-rn",fmt(p.name)), st=el("div","ph-rs "+G.sub,G.label); r._st=st;
+  wrap.append(nm,st); left.append(tk,wrap);
+  const b=el("button","ph-ra",G.btn); b.onclick=fn;
+  r.append(left,b);
+  attachDrag(r,{listEl:P.list,cross:false,phClass:"ph-ph",onGroup(){},
+    commit(order,from,to,p){
+      const grp=g=>order.filter(o=>o.g===g).map(o=>o.p);
+      const key=()=>[S.hold,S.testing,S.waiting].map(a=>a.map(x=>x.token).join()).join("|");
+      const before=key();
+      S.hold=grp("hold"); S.testing=grp("testing"); S.waiting=grp("pending");
+      if(key()===before) return;
+      setFlash(p.token);
+      const where=from==="pending"?"moved to position "+(S.waiting.indexOf(p)+1)
+                 :"reordered in "+(from==="hold"?"On Hold":"Testing");
+      addLog("Nurse desk",where,p); flashDevs("Nurse desk");
+    }});
+  return r;
+}
+function renderPhone(){
+  P.tok.textContent=S.active.token; P.name.textContent=fmt(S.active.name);
+  P.badge.textContent=S.active.review?"Reviewing Results":"In Consultation";
+  P.badge.className="ph-badge"+(S.active.review?" rev":"");
+  P.mask.textContent=S.mask?"👁 Show":"👁 Mask";
+  P.count.textContent="Total: "+(S.waiting.length+S.hold.length+S.testing.length);
+  P.list.innerHTML="";
+  S.hold.forEach((p,i)=>P.list.appendChild(phoneRow(p,"hold",()=>restoreHold(i,"Nurse desk"))));
+  S.testing.forEach((p,i)=>P.list.appendChild(phoneRow(p,"testing",()=>testDone(i,"Nurse desk"))));
+  S.waiting.forEach(p=>P.list.appendChild(phoneRow(p,"pending",()=>{})));
+}
+
+/* ================= build: nurse console ================= */
+const N={};
+function buildNurse(){
+  const d=el("div","dev"); d.id="dev-nurse";
+  d.innerHTML=`<div class="mon frame"><div class="scr">
+    <header class="card nu-head">
+      <div class="nu-id"><div class="nu-bar"></div><div><div class="nu-title">Dr. Arvind Krishnan</div><div class="nu-sub">Senior Consultant — General Medicine</div></div></div>
+      <div class="nu-right">
+        <div class="timebox"><div class="m"><span class="pill">Time Now</span><div class="d" data-r="date"></div></div><div class="num c" data-r="clock"></div></div>
+        <button class="cbtn" data-r="mask">Mask Names</button>
+      </div>
+    </header>
+    <section class="card nu-cur" data-r="cur">
+      <div class="nu-tp">
+        <div><span class="pill">Current Token</span><div class="num nu-giant" data-r="tok"></div></div>
+        <div class="vdiv"></div>
+        <div style="min-width:0;flex:1"><span class="flab">Patient</span><div class="nu-pname" data-r="name"></div></div>
+      </div>
+      <div class="nu-stack">
+        <button class="stpill" data-r="status"><i></i><span data-r="stxt"></span></button>
+        <div class="wf">
+          <button class="wfb" data-r="ann">Announce Again</button>
+          <button class="wfb" data-r="hold">On Hold</button>
+          <button class="wfb" data-r="test">Send for Testing</button>
+          <button class="wfb go" data-r="next">✓ Complete &amp; Announce Next</button>
+        </div>
+      </div>
+    </section>
+    <main class="card nu-q">
+      <div class="nu-qt">
+        <div class="nu-qh">Waiting Queue <span class="cnt num" data-r="count"></span></div>
+        <div class="strips">
+          <div class="trk"><span class="trk-tag h">On Hold</span><span data-r="holds" style="display:flex;gap:5px"></span></div>
+          <div class="trk"><span class="trk-tag t">Testing</span><span data-r="tests" style="display:flex;gap:5px"></span></div>
+        </div>
+        <span class="est-h">Est. Entry Time</span>
+      </div>
+      <div class="nu-rows droplist" data-r="rows"></div>
+    </main>
+  </div></div>`;
+  d.querySelectorAll("[data-r]").forEach(n=>N[n.dataset.r]=n);
+  N.mask.onclick=()=>toggleMask("Doctor");
+  N.status.onclick=N.ann.onclick=()=>announce("Doctor");
+  N.hold.onclick=()=>actHold("Doctor");
+  N.test.onclick=()=>actTest("Doctor");
+  N.next.onclick=()=>actNext("Doctor");
+  guardTouch(N.rows);
+  DEV.nurse.el=d; return d;
+}
+function nurseRow(p,idx){
+  const e=est(idx), isNext=idx===0, rev=p.review;
+  const r=el("div","nu-row"+(rev?" rev":isNext?" next":"")+(S.flash===p.token?" flash":"")); r._it={p,g:"pending"};
+  const l=el("div","nu-rl"); l.append(el("span","num nu-rt",p.token),el("span","nu-rn",fmt(p.name)));
+  const b=el("div","nu-rb");
+  if(isNext) b.append(el("span","nextup","Next up"));
+  const c=el("button","clin"+(rev?" rev":""),rev?"Awaiting Review":"Pending");
+  c.title="Switch between Pending (10 min) and Awaiting Review (5 min)";
+  c.onclick=ev=>{ev.stopPropagation(); toggleReview(S.waiting.indexOf(p),"Doctor");};
+  b.append(c); l.append(b);
+  const t=el("div","tbox"+(rev?" rev":isNext?" next":""));
+  t.append(el("span","num chip","in "+e.mins+"m"),el("span","num tclock",e.clock));
+  r.append(l,t);
+  attachDrag(r,{listEl:N.rows,cross:false,phClass:"nu-ph",onGroup(){},
+    commit(order,from,to,moved){
+      const vis=order.map(o=>o.p), rest=S.waiting.slice(5);
+      const old=S.waiting.indexOf(moved);
+      S.waiting=vis.concat(rest);
+      const now=S.waiting.indexOf(moved);
+      if(old===now) return;
+      setFlash(moved.token); addLog("Doctor","moved to position "+(now+1),moved); flashDevs("Doctor");
+    }});
+  return r;
+}
+function pills(container,list,cls,fn,user){
+  container.innerHTML="";
+  if(!list.length){ container.appendChild(el("span","trk-none","None")); return; }
+  list.slice(0,2).forEach((p,i)=>{
+    const b=el("button","trk-pill "+cls); b.type="button";
+    b.append(el("span","num",p.token),el("span","",fmt(p.name))); b.onclick=()=>fn(i,user); container.appendChild(b);
+  });
+  if(list.length>2) container.appendChild(el("span","trk-none","+"+(list.length-2)));
+}
+function renderNurse(){
+  N.tok.textContent=S.active.token; N.name.textContent=fmt(S.active.name);
+  N.cur.classList.toggle("calling",S.calling);
+  const rev=S.active.review;
+  N.stxt.textContent=(S.calling?"Please Enter — ":"")+(rev?"Reviewing Results":"In Consultation");
+  N.status.className="stpill"+(rev?" rev":"");
+  N.mask.textContent=S.mask?"Show Full Names":"Mask Names";
+  N.count.textContent=S.waiting.length+" Waiting";
+  pills(N.holds,S.hold,"h",restoreHold,"Doctor");
+  pills(N.tests,S.testing,"t",testDone,"Doctor");
+  N.rows.innerHTML="";
+  S.waiting.slice(0,5).forEach((p,i)=>N.rows.appendChild(nurseRow(p,i)));
+}
+
+/* ================= build: waiting-room display ================= */
+const T={};
+function buildTV(){
+  const d=el("div","dev"); d.id="dev-tv";
+  d.innerHTML=`<div class="mon frame"><div class="scr">
+    <header class="card tv-top">
+      <div class="tv-brand"><div class="tv-logo">+</div><div><div class="tv-hn">City Care Hospital</div><div class="tv-hs">General Medicine · Outpatient Department</div></div></div>
+      <div class="timebox"><div class="m"><span class="pill">Time Now</span><div class="d" data-r="date"></div></div><div class="num c" data-r="clock"></div></div>
+    </header>
+    <div class="tv-main">
+      <section class="card tv-now" data-r="now">
+        <div class="tv-banner" data-r="banner"></div>
+        <div class="tv-lab">Now Serving</div>
+        <div class="num tv-tok" data-r="tok"></div>
+        <div class="tv-pn" data-r="name"></div>
+        <div class="tv-st" data-r="st"><i></i><span data-r="stxt"></span></div>
+        <div class="tv-doc"><b>Dr. Arvind Krishnan</b><span>Senior Consultant — General Medicine · Consultation Room 3</span></div>
+      </section>
+      <div class="tv-side">
+        <section class="card tv-next">
+          <div class="tv-nh"><span>Next in line</span><span class="e">Est. Entry Time</span></div>
+          <div class="tv-rows" data-r="rows"></div>
+        </section>
+        <div class="tv-strips">
+          <div class="card tv-strip h"><h4>On hold</h4><div class="tv-chips" data-r="holds"></div></div>
+          <div class="card tv-strip t"><h4>Testing (lab / scan)</h4><div class="tv-chips" data-r="tests"></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="tv-tick"><span><b>●</b>Please keep your token slip ready<b>●</b>Patients returning from tests wait for their token to be called again<b>●</b>Please keep your phone on silent in the consultation area<b>●</b>Emergency cases are always seen first</span></div>
+  </div></div>`;
+  d.querySelectorAll("[data-r]").forEach(n=>T[n.dataset.r]=n);
+  DEV.tv.el=d; return d;
+}
+function chips(container,list){
+  container.innerHTML="";
+  if(!list.length){ container.appendChild(el("span","trk-none","None")); return; }
+  list.slice(0,3).forEach(p=>{ const c=el("span","tv-chip"); c.append(el("span","num",p.token),el("span","",fmt(p.name))); container.appendChild(c); });
+  if(list.length>3) container.appendChild(el("span","trk-none","+"+(list.length-3)));
+}
+function renderTV(){
+  const rev=S.active.review;
+  T.tok.textContent=S.active.token; T.name.textContent=fmt(S.active.name);
+  T.now.classList.toggle("calling",S.calling);
+  T.banner.textContent="Token "+S.active.token+" — please proceed to Consultation Room 3";
+  T.st.className="tv-st"+(rev?" rev":"");
+  T.stxt.textContent=rev?"Reviewing Results":"In Consultation";
+  T.rows.innerHTML="";
+  S.waiting.slice(0,5).forEach((p,i)=>{
+    const e=est(i), isNext=i===0;
+    const r=el("div","tv-row"+(p.review?" rev":isNext?" next":"")+(S.flash===p.token?" flash":""));
+    r.append(el("span","num tv-rt",p.token),el("span","tv-rn",fmt(p.name)));
+    if(p.review) r.append(el("span","tv-badge r","Awaiting Review"));
+    else if(isNext) r.append(el("span","tv-badge n","Next up"));
+    const tb=el("div","tv-tb"); tb.append(el("span","num chip","in "+e.mins+"m"),el("span","num tclock",e.clock));
+    r.append(tb); T.rows.appendChild(r);
+  });
+  chips(T.holds,S.hold); chips(T.tests,S.testing);
+}
+
+/* ================= activity feed ================= */
+function renderFeed(){
+  const ul=$("#feed"); ul.innerHTML="";
+  if(!feedLog.length){ ul.appendChild(el("li","empty","Actions on any screen appear here.")); return; }
+  feedLog.forEach(f=>{
+    const li=el("li"); li.append(el("time","",hhmm(f.t)));
+    li.append(el("span","who"+(f.who==="Nurse desk"?" nurse":""),f.who));
+    const t=el("span","txt"); t.append(document.createTextNode(f.verb+(f.token!=null?" ":"")));
+    if(f.token!=null){ t.append(el("b","","Token "+f.token)); if(f.name) t.append(document.createTextNode(" — "+fmt(f.name))); }
+    li.append(t); ul.appendChild(li);
+  });
+}
+
+/* ================= render ================= */
+let deferred=false;
+function render(force){
+  if(dragCount&&!force){ deferred=true; return; }
+  deferred=false; renderPhone(); renderNurse(); renderTV(); renderFeed();
+}
+function tickClocks(){
+  const d=new Date(), t=clockStr(d), date=d.toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"short",year:"numeric"});
+  P.clock.textContent=hhmm(d); N.clock.textContent=t; T.clock.textContent=t; N.date.textContent=date; T.date.textContent=date;
+}
+
+/* ================= scripted walkthrough ================= */
+let demoTimers=[], demoOn=false;
+const STEPS=[
+  [0,"nurse","Doctor taps Complete & Next. The waiting room calls the next token.",()=>actNext("Doctor")],
+  [6000,"nurse","Doctor sends the current patient for a lab test and the next patient is called.",()=>actTest("Doctor")],
+  [6000,"phone","Nurse desk drags an urgent patient to the front of the line.",()=>moveLastToFront("Nurse desk")],
+  [6000,"phone","The test is done. The patient rejoins the line, flagged Awaiting Review.",()=>testDone(0,"Nurse desk")],
+  [6000,"nurse","Doctor puts the current patient on hold and calls the next one.",()=>actHold("Doctor")],
+  [6000,"phone","Nurse desk returns the held patient to the line.",()=>restoreHold(S.hold.length-1,"Nurse desk")],
+  [6000,"tv","Names can be masked for privacy in the waiting room.",()=>toggleMask("Nurse desk")],
+  [5000,"tv","Names are shown again. That is the whole flow.",()=>{ if(S.mask) toggleMask("Nurse desk"); }]
+];
+function setStory(txt){
+  const s=$("#story"); if(txt){ $("#storyTxt").textContent=txt; s.classList.add("on"); } else s.classList.remove("on");
+}
+function spotlight(k){
+  Object.values(DEV).forEach(d=>d.el.classList.remove("spot"));
+  if(k&&DEV[k]){ DEV[k].el.classList.add("spot"); setTimeout(()=>DEV[k]&&DEV[k].el.classList.remove("spot"),2600); }
+}
+function playDemo(){
+  stopDemo(true); resetState(); setFocus("all"); demoOn=true; syncPlayBtn();
+  let at=600;
+  STEPS.forEach(([gap,dev,text,fn])=>{
+    at+=gap;
+    demoTimers.push(setTimeout(()=>{ setStory(text); spotlight(dev); fn(); },at));
+  });
+  demoTimers.push(setTimeout(()=>stopDemo(),at+5500));
+}
+function stopDemo(silent){
+  demoTimers.forEach(clearTimeout); demoTimers=[]; demoOn=false;
+  setStory(""); spotlight(null);
+  if(!silent) syncPlayBtn(); else syncPlayBtn();
+}
+function resetState(){
+  S=initState(); nextToken=109; poolIdx=0; feedLog=[];
+  clearTimeout(callTimer); clearTimeout(flashTimer);
+  try{ speechSynthesis.cancel(); }catch(e){}
+  render(true);
+}
+function syncPlayBtn(){
+  $("#btnPlay").innerHTML=demoOn?ICON.stop+"Stop demo":ICON.play+"Play demo";
+}
+function syncSound(){
+  $("#btnSound").innerHTML=(sound?ICON.on:ICON.off)+(sound?"Sound on":"Sound off");
+  $("#btnSound").setAttribute("aria-pressed",String(sound));
+}
+
+/* ================= layout: fit the slide to the window ================= */
+const stage=$("#stage"), vp=$("#vp"), bar=$("#bar");
+function setFocus(f){
+  if(f!=="all"&&!DEV[f]) f="all";
+  focus=f;
+  document.querySelectorAll(".tab").forEach(t=>t.setAttribute("aria-selected",String(t.dataset.focus===f)));
+  fit();
+}
+function fit(){
+  const narrow=innerWidth<820;
+  document.documentElement.classList.toggle("narrow",narrow);
+  let f=focus; if(narrow&&f==="all"){ f="phone"; document.querySelectorAll(".tab").forEach(t=>t.setAttribute("aria-selected",String(t.dataset.focus===f))); }
+  let sw=1920, sh=1080;
+  if(narrow){ sw=DEV[f].w; sh=DEV[f].h; }
+  const availW=innerWidth-32, availH=innerHeight-bar.offsetHeight-16;
+  const k=narrow?availW/sw:Math.min(availW/sw,availH/sh);
+  stage.style.width=sw+"px"; stage.style.height=sh+"px"; stage.style.transform="scale("+k+")";
+  vp.style.width=sw*k+"px"; vp.style.height=sh*k+"px";
+  stage.classList.toggle("focused",!narrow&&f!=="all");
+  Object.keys(DEV).forEach(key=>{
+    const d=DEV[key]; let x=0,y=0,s=1,vis=true;
+    if(narrow){ vis=key===f; }
+    else if(f==="all"){ x=d.slide.x; y=d.slide.y; s=d.slide.k; }
+    else if(f===key){
+      s=Math.min((1920-96)/d.w,(1080-250)/d.h); x=(1920-d.w*s)/2; y=160+(1080-160-80-d.h*s)/2;
+    } else vis=false;
+    d.el.style.width=d.w+"px"; d.el.style.height=d.h+"px";
+    d.el.style.transform="translate("+x+"px,"+y+"px) scale("+s+")";
+    d.el.style.opacity=vis?1:0; d.el.style.pointerEvents=vis?"auto":"none";
+    d.el.setAttribute("aria-hidden",String(!vis));
+  });
+}
+
+/* ================= init ================= */
+stage.appendChild(buildPhone()); stage.appendChild(buildNurse()); stage.appendChild(buildTV());
+// phone placed above furniture z-order is fine: devices come after the captions in DOM order
+$("#btnReset").innerHTML=ICON.reset+"Reset";
+$("#btnFull").innerHTML=ICON.full+"Full screen";
+syncPlayBtn(); syncSound();
+render(true); tickClocks(); setInterval(tickClocks,1000); setInterval(()=>render(),30000);
+
+document.addEventListener("click",e=>{
+  const f=e.target.closest("[data-focus]"); if(f) setFocus(f.dataset.focus);
+});
+$("#btnPlay").onclick=()=>{ demoOn?stopDemo():playDemo(); };
+$("#btnSound").onclick=()=>{ sound=!sound; if(!sound){ try{speechSynthesis.cancel();}catch(e){} } syncSound(); };
+$("#btnReset").onclick=()=>{ stopDemo(); resetState(); };
+$("#btnFull").onclick=()=>{
+  if(!document.fullscreenElement) document.documentElement.requestFullscreen&&document.documentElement.requestFullscreen().catch(()=>{});
+  else document.exitFullscreen&&document.exitFullscreen().catch(()=>{});
+};
+$("#btnStart").onclick=()=>{
+  try{ const AC=window.AudioContext||window.webkitAudioContext; audioCtx=audioCtx||new AC(); audioCtx.resume(); }catch(e){}
+  try{ speechSynthesis.getVoices(); }catch(e){}
+  unlocked=true; $("#gate").hidden=true;
+};
+document.addEventListener("fullscreenchange",()=>setTimeout(fit,60));
+window.addEventListener("keydown",e=>{
+  if(!$("#gate").hidden||e.metaKey||e.ctrlKey||e.altKey) return;
+  const k=e.key.toLowerCase();
+  if(k==="1") setFocus("phone"); else if(k==="2") setFocus("nurse"); else if(k==="3") setFocus("tv");
+  else if(k==="0"||k==="escape") setFocus("all");
+  else if(k==="p") $("#btnPlay").click(); else if(k==="m") $("#btnSound").click();
+});
+window.addEventListener("resize",fit);
+if("ResizeObserver" in window) new ResizeObserver(fit).observe(bar);
+setFocus("all");
+window.__demo={S:()=>S,actNext,actHold,actTest,restoreHold,testDone,setFocus,playDemo};
+})();
+</script>
+
+</body></html>
